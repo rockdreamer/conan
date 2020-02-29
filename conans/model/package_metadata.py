@@ -1,8 +1,11 @@
 import json
 from collections import defaultdict
+from datetime import datetime, timezone
 
 from conans import DEFAULT_REVISION_V1
 
+# Replacement for fromisoformat for older python 3.x, saved times are UTC
+time_fmt_str =  r"%Y-%m-%dT%H:%M:%S.%f" 
 
 class _RecipeMetadata(object):
 
@@ -11,6 +14,7 @@ class _RecipeMetadata(object):
         self.properties = {}
         self.checksums = {}
         self.remote = None
+        self._last_used = None
 
     @property
     def revision(self):
@@ -20,11 +24,22 @@ class _RecipeMetadata(object):
     def revision(self, r):
         self._revision = r
 
+    @property
+    def last_used(self):
+        if not self._last_used:
+            return datetime.now(timezone.utc)
+        return self._last_used
+
+    @last_used.setter
+    def last_used(self, lu):
+        self._last_used = lu
+
     def to_dict(self):
         ret = {"revision": self.revision,
                "remote": self.remote,
                "properties": self.properties,
-               "checksums": self.checksums}
+               "checksums": self.checksums,
+               "last_used_utc": self.last_used}
         return ret
 
     @staticmethod
@@ -35,6 +50,10 @@ class _RecipeMetadata(object):
         ret.properties = data["properties"]
         ret.checksums = data.get("checksums", {})
         ret.time = data.get("time")
+        try:
+            ret.last_used = datetime.strptime(data.get("last_used_utc"), time_fmt_str).replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            ret.last_used = None
         return ret
 
 
@@ -46,6 +65,7 @@ class _BinaryPackageMetadata(object):
         self.properties = {}
         self.checksums = {}
         self.remote = None
+        self._last_used = None
 
     @property
     def revision(self):
@@ -63,12 +83,23 @@ class _BinaryPackageMetadata(object):
     def recipe_revision(self, r):
         self._recipe_revision = DEFAULT_REVISION_V1 if r is None else r
 
+    @property
+    def last_used(self):
+        if not self._last_used:
+            return datetime.now(timezone.utc)
+        return self._last_used
+
+    @last_used.setter
+    def last_used(self, lu):
+        self._last_used = lu
+
     def to_dict(self):
         ret = {"revision": self.revision,
                "recipe_revision": self.recipe_revision,
                "remote": self.remote,
                "properties": self.properties,
-               "checksums": self.checksums}
+               "checksums": self.checksums,
+               "last_used_utc": self.last_used}
         return ret
 
     @staticmethod
@@ -79,6 +110,10 @@ class _BinaryPackageMetadata(object):
         ret.properties = data.get("properties")
         ret.checksums = data.get("checksums", {})
         ret.remote = data.get("remote")
+        try:
+            ret.last_used = datetime.strptime(data.get("last_used_utc"), time_fmt_str).replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            ret.last_used = None
         return ret
 
 
@@ -98,16 +133,28 @@ class PackageMetadata(object):
             ret.packages[pid] = _BinaryPackageMetadata.loads(v)
         return ret
 
-    def dumps(self):
+    @property
+    def last_used(self):
+        return max([self.recipe.last_used] + [p.last_used for p in self.packages.values()])
+
+    def dumps(self, for_comparison=False):
         tmp = {"recipe": self.recipe.to_dict(),
                "packages": {k: v.to_dict() for k, v in self.packages.items()}}
-        return json.dumps(tmp)
+        if for_comparison:
+            del tmp["recipe"]["last_used_utc"]
+            for package_id in tmp["packages"].keys():
+                del tmp["packages"][package_id]["last_used_utc"]
+
+        def default(o):
+            if isinstance(o, datetime):
+                return o.strftime(time_fmt_str)
+        return json.dumps(tmp, default=default)
 
     def __str__(self):
         return self.dumps()
 
     def __eq__(self, other):
-        return self.dumps() == other.dumps()
+        return self.dumps(for_comparison=True) == other.dumps(for_comparison=True)
 
     def clear(self):
         self.recipe = _RecipeMetadata()
