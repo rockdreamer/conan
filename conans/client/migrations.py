@@ -1,5 +1,6 @@
 import os
 import shutil
+from datetime import datetime, timezone
 
 from conans import DEFAULT_REVISION_V1
 from conans.client import migrations_settings
@@ -106,6 +107,8 @@ class ClientMigrator(Migrator):
         if old_version < Version("1.19.0"):
             migrate_localdb_refresh_token(self.cache, self.out)
 
+        if old_version < Version("1.22.3"):
+            _migrate_metadata_last_used(self.cache, self.out)
 
 def _get_refs(cache):
     folders = list_folder_subdirs(cache.store, 4)
@@ -303,3 +306,23 @@ def migrate_plugins_to_hooks(cache, output=None):
         os.rename(plugins_path, cache.hooks_path)
     conf_path = cache.conan_conf_path
     replace_in_file(conf_path, "[plugins]", "[hooks]", strict=False, output=output)
+
+def _migrate_metadata_last_used(cache, out):
+    refs = _get_refs(cache)
+    migration_time = datetime.now(timezone.utc)
+    for ref in refs:
+        try:
+            base_folder = os.path.normpath(os.path.join(cache.store, ref.dir_repr()))
+            layout = PackageCacheLayout(base_folder=base_folder, ref=ref, short_paths=None,
+                                        no_lock=True)
+            with layout.update_metadata() as metadata:
+                if metadata.recipe.last_used is None:
+                    metadata.recipe.last_used = migration_time
+                for pkg in metadata.packages.values():
+                    if pkg.last_used is None:
+                        pkg.last_used = migration_time
+
+        except Exception as e:
+            raise ConanException("Something went wrong while migrating metadata.json files "
+                                 "in the cache, please try to fix the issue or wipe the cache: {}"
+                                 ":{}".format(ref, e))

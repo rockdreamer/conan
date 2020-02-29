@@ -69,6 +69,28 @@ class TestMigrations(unittest.TestCase):
         metadata_ref2 = client.cache.package_layout(ref2).load_metadata()
         self.assertEqual(metadata_ref2.recipe.revision, "Other")
 
+    def test_migrate_last_used_metadata(self):
+        client = TestClient()
+        client.save({"conanfile.py": GenConanfile().with_name("Hello").with_version("0.1")})
+        client.run("create . user/testing")
+        ref = ConanFileReference.loads("Hello/0.1@user/testing")
+        layout1 = client.cache.package_layout(ref)
+        metadata = json.loads(load(layout1.package_metadata()))
+        metadata["recipe"]["revision"] = None
+        del metadata["recipe"]["last_used_utc"]
+        metadata["packages"]["5ab84d6acfe1f23c4fae0ab88f26e3a396351ac9"]["revision"] = None
+        metadata["packages"]["5ab84d6acfe1f23c4fae0ab88f26e3a396351ac9"]["recipe_revision"] = None
+        del metadata["packages"]["5ab84d6acfe1f23c4fae0ab88f26e3a396351ac9"]["last_used_utc"]
+        save(layout1.package_metadata(), json.dumps(metadata))
+
+        version_file = os.path.join(client.cache_folder, CONAN_VERSION)
+        save(version_file, "1.22.2")
+        client.run("search")  # This will fire a migration
+
+        metadata_2 = json.loads(load(layout1.package_metadata()))
+        self.assertIsNotNone(metadata_2["recipe"]["last_used_utc"])
+        self.assertIsNotNone(metadata_2["packages"]["5ab84d6acfe1f23c4fae0ab88f26e3a396351ac9"]["last_used_utc"])
+
     def test_migrate_config_install(self):
         client = TestClient()
         client.run('config set general.config_install="url, http:/fake.url, None, None"')
