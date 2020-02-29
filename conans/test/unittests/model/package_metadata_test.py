@@ -79,5 +79,7 @@ class PackageMetadataTest(unittest.TestCase):
 
         b = PackageMetadata.loads(tmp)
         
-        # Packages with no last_used data return datetime.now(timezone.utc) by default
-        self.assertTrue((datetime.now(timezone.utc) - b.last_used) < timedelta(seconds=1) )
+        # Packages with no last_used data return None
+        self.assertIsNone(b.last_used)
+        self.assertIsNone(b.recipe.last_used)
+        self.assertIsNone(b.packages["ID"].last_used)

@@ -26,8 +26,6 @@ class _RecipeMetadata(object):
 
     @property
     def last_used(self):
-        if not self._last_used:
-            return datetime.now(timezone.utc)
         return self._last_used
 
     @last_used.setter
@@ -85,8 +83,6 @@ class _BinaryPackageMetadata(object):
 
     @property
     def last_used(self):
-        if not self._last_used:
-            return datetime.now(timezone.utc)
         return self._last_used
 
     @last_used.setter
@@ -135,7 +131,10 @@ class PackageMetadata(object):
 
     @property
     def last_used(self):
-        return max([self.recipe.last_used] + [p.last_used for p in self.packages.values()])
+        try:
+            return max([self.recipe.last_used] + [p.last_used for p in self.packages.values()])
+        except TypeError:
+            return None
 
     def dumps(self, for_comparison=False):
         tmp = {"recipe": self.recipe.to_dict(),
