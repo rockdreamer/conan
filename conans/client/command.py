@@ -5,6 +5,7 @@ import os
 import sys
 from argparse import ArgumentError
 from difflib import get_close_matches
+from datetime import datetime, timezone, timedelta
 
 from six.moves import input as raw_input
 
@@ -103,6 +104,7 @@ _PATH_HELP = ("Path to a folder containing a conanfile.py or to a recipe file "
               "e.g., my_folder/conanfile.py")
 _QUERY_HELP = ("Packages query: '%s'. The 'pattern_or_reference' parameter has "
                "to be a reference: %s" % (_QUERY_EXAMPLE, _REFERENCE_EXAMPLE))
+_LRU_HELP = ("Do not remove packages or recipes that have been used in the specified amount of days")
 _SOURCE_FOLDER_HELP = ("Directory containing the sources. Defaulted to the conanfile's directory. A"
                        " relative path to the current directory can also be specified")
 
@@ -1017,6 +1019,8 @@ class Command(object):
                             help='Remove without requesting a confirmation')
         parser.add_argument("-l", "--locks", default=False, action="store_true",
                             help="Remove locks")
+        parser.add_argument('-lru', '--keep-least-recently-used', default=None,
+                            type=int, action=OnceArgument, help=_LRU_HELP)
         parser.add_argument("-o", "--outdated", default=False, action="store_true",
                             help="Remove only outdated from recipe packages. "
                                  "This flag can only be used with a reference")
@@ -1043,6 +1047,9 @@ class Command(object):
         if args.outdated and not args.pattern_or_reference:
             raise ConanException("'--outdated' argument can only be used with a reference")
 
+        if args.remote and args.keep_least_recently_used:
+            raise ConanException("'--keep-least-recently-used' argument can only be used locally")
+
         if args.locks:
             if args.pattern_or_reference:
                 raise ConanException("Specifying a pattern is not supported when removing locks")
@@ -1063,9 +1070,13 @@ class Command(object):
             if not args.pattern_or_reference:
                 raise ConanException('Please specify a pattern to be removed ("*" for all)')
 
+        keep_used_after = datetime.now(timezone.utc) - timedelta(days=args.keep_least_recently_used) \
+             if args.keep_least_recently_used else None
+
         return self._conan.remove(pattern=args.pattern_or_reference, query=args.query,
                                   packages=args.packages, builds=args.builds, src=args.src,
-                                  force=args.force, remote_name=args.remote, outdated=args.outdated)
+                                  force=args.force, remote_name=args.remote, outdated=args.outdated,
+                                  keep_used_after=keep_used_after)
 
     def copy(self, *args):
         """

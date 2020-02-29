@@ -762,11 +762,11 @@ class ConanAPIV1(object):
 
     @api_method
     def remove(self, pattern, query=None, packages=None, builds=None, src=False, force=False,
-               remote_name=None, outdated=False):
+               remote_name=None, outdated=False, keep_used_after=None):
         remotes = self.app.cache.registry.load_remotes()
         remover = ConanRemover(self.app.cache, self.app.remote_manager, self.app.user_io, remotes)
         remover.remove(pattern, remote_name, src, builds, packages, force=force,
-                       packages_query=query, outdated=outdated)
+                       packages_query=query, outdated=outdated, keep_used_after=keep_used_after)
 
     @api_method
     def copy(self, reference, user_channel, force=False, packages=None):

@@ -3,6 +3,7 @@ import platform
 import unittest
 
 import six
+from datetime import datetime, timezone, timedelta
 from mock import Mock
 
 from conans import DEFAULT_REVISION_V1
@@ -145,6 +146,7 @@ class RemoveTest(unittest.TestCase):
             folder = folder.replace("@", "/")
             fake_metadata = PackageMetadata()
             fake_metadata.recipe.revision = DEFAULT_REVISION_V1
+            fake_metadata.recipe.last_used = datetime.now(timezone.utc) - timedelta(days=2) + timedelta(hours=1)
             files["%s/%s/conanfile.py" % (folder, EXPORT_FOLDER)] = test_conanfile_contents
             files["%s/%s/conanmanifest.txt" % (folder, EXPORT_FOLDER)] = "%s\nconanfile.py: 234234234" % fake_recipe_hash
             files["%s/%s/conans.txt" % (folder, SRC_FOLDER)] = ""
@@ -152,6 +154,7 @@ class RemoveTest(unittest.TestCase):
                 i = pack_id
                 pack_id = "%s_%s" % (pack_id, key)
                 fake_metadata.packages[pack_id].revision = DEFAULT_REVISION_V1
+                fake_metadata.packages[pack_id].last_used = datetime.now(timezone.utc) - timedelta(days=i+1) + timedelta(hours=1)
                 prefs.append(PackageReference(ref, str(pack_id)))
                 files["%s/%s/%s/conans.txt" % (folder, BUILD_FOLDER, pack_id)] = ""
                 files["%s/%s/%s/conans.txt" % (folder, PACKAGES_FOLDER, pack_id)] = ""
@@ -479,6 +482,41 @@ class RemoveTest(unittest.TestCase):
         self.assertNotIn("No packages matching the query", self.client.out)
         self.assert_folders(local_folders={"H1": [], "H2": [1, 2], "B": [1, 2], "O": [1, 2]},
                             remote_folders={"H1": [1], "H2": [1, 2], "B": [1, 2], "O": [1, 2]},
+                            build_folders={"H1": [1, 2], "H2": [1, 2], "B": [1, 2], "O": [1, 2]},
+                            src_folders={"H1": True, "H2": True, "B": True, "O": True})
+
+    def remove_lru_keeps_recent_test(self):
+        self.client.run("remove hello/* -lru=60 -f")
+        self.assert_folders(local_folders={"H1": [1, 2], "H2": [1, 2], "B": [1, 2], "O": [1, 2]},
+                            remote_folders={"H1": [1, 2], "H2": [1, 2], "B": [1, 2], "O": [1, 2]},
+                            build_folders={"H1": [1, 2], "H2": [1, 2], "B": [1, 2], "O": [1, 2]},
+                            src_folders={"H1": True, "H2": True, "B": True, "O": True})
+
+    def remove_lru_removes_outdated_binary_packages_test(self):
+        self.client.run("remove hello/* -lru=2 -f")
+        self.assert_folders(local_folders={"H1": [1], "H2": [1], "B": [1, 2], "O": [1, 2]},
+                            remote_folders={"H1": [1, 2], "H2": [1, 2], "B": [1, 2], "O": [1, 2]},
+                            build_folders={"H1": [1, 2], "H2": [1, 2], "B": [1, 2], "O": [1, 2]},
+                            src_folders={"H1": True, "H2": True, "B": True, "O": True})
+
+    def remove_lru_respects_pquery_for_binary_packages_test(self):
+        self.client.run("remove hello/* -lru=2 -p=1_H1 -f")
+        self.assert_folders(local_folders={"H1": [1, 2], "H2": [1, 2], "B": [1, 2], "O": [1, 2]},
+                            remote_folders={"H1": [1, 2], "H2": [1, 2], "B": [1, 2], "O": [1, 2]},
+                            build_folders={"H1": [1, 2], "H2": [1, 2], "B": [1, 2], "O": [1, 2]},
+                            src_folders={"H1": True, "H2": True, "B": True, "O": True})
+
+    def remove_lru_removes_outdated_packages_test(self):
+        self.client.run("remove hello/* -lru=1 -f")
+        self.assert_folders(local_folders={"H1": [], "H2": [], "B": [1, 2], "O": [1, 2]},
+                            remote_folders={"H1": [1, 2], "H2": [1, 2], "B": [1, 2], "O": [1, 2]},
+                            build_folders={"H1": [], "H2": [], "B": [1, 2], "O": [1, 2]},
+                            src_folders={"H1": False, "H2": False, "B": True, "O": True})
+
+    def remove_lru_respects_package_query_test(self):
+        self.client.run("remove hello/* -lru=1 -p=1_H1 -f")
+        self.assert_folders(local_folders={"H1": [2], "H2": [1, 2], "B": [1, 2], "O": [1, 2]},
+                            remote_folders={"H1": [1, 2], "H2": [1, 2], "B": [1, 2], "O": [1, 2]},
                             build_folders={"H1": [1, 2], "H2": [1, 2], "B": [1, 2], "O": [1, 2]},
                             src_folders={"H1": True, "H2": True, "B": True, "O": True})
 

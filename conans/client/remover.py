@@ -105,7 +105,7 @@ class ConanRemover(object):
         return "Package '{r}' is installed as editable, remove it first using " \
                "command 'conan editable remove {r}'".format(r=ref)
 
-    def _local_remove(self, ref, src, build_ids, package_ids):
+    def _local_remove(self, ref, src, build_ids, package_ids, keep_used_after):
         if self._cache.installed_as_editable(ref):
             self._user_io.out.warn(self._message_removing_editable(ref))
             return
@@ -131,7 +131,7 @@ class ConanRemover(object):
             remover.remove(package_layout, output=self._user_io.out)
 
     def remove(self, pattern, remote_name, src=None, build_ids=None, package_ids_filter=None,
-               force=False, packages_query=None, outdated=False):
+               force=False, packages_query=None, outdated=False, keep_used_after=None):
         """ Remove local/remote conans, package folders, etc.
         @param src: Remove src folder
         @param pattern: it could be OpenCV* or OpenCV or a ConanFileReference
@@ -139,6 +139,7 @@ class ConanRemover(object):
         @param package_ids_filter: Lists with ids or empty for all. (Its a filter)
         @param force: if True, it will be deleted without requesting anything
         @param packages_query: Only if src is a reference. Query settings and options
+        @param keep_used_after: do not remove if last used after this datetime
         """
 
         if remote_name and (build_ids is not None or src):
@@ -157,6 +158,9 @@ class ConanRemover(object):
                     raise ConanException("Specify a recipe revision if you specify a package "
                                          "revision")
 
+        if remote_name and keep_used_after:
+            raise ConanException("Cannot use remote and keep-used-after combined")
+        
         if remote_name:
             remote = self._remotes[remote_name]
             if input_ref:
@@ -213,12 +217,28 @@ class ConanRemover(object):
                                            % ref.full_str())
                     continue
 
+            if keep_used_after:
+                metadata = package_layout.load_metadata()
+                if metadata.last_used > keep_used_after:
+                    # See if some packages can be removed
+                    candidate_package_ids = [id for id, package in metadata.packages.items() \
+                                                if package.last_used < keep_used_after]
+                    if not candidate_package_ids:
+                        # No binary packages can be removed as they've been recently used
+                        # Avoid deleting alltogether
+                        continue
+                    # If a user has requested specific package ids, only remove older ones
+                    package_ids = list(set(package_ids) & set(candidate_package_ids)) if package_ids \
+                        else candidate_package_ids
+                    if not package_ids:
+                        continue
+
             if self._ask_permission(ref, src, build_ids, package_ids, force):
                 try:
                     if remote_name:
                         self._remote_remove(ref, package_ids, remote)
                     else:
-                        self._local_remove(ref, src, build_ids, package_ids)
+                        self._local_remove(ref, src, build_ids, package_ids, keep_used_after)
                 except NotFoundException:
                     # If we didn't specify a pattern but a concrete ref, fail if there is no
                     # ref to remove
